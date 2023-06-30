@@ -1,0 +1,138 @@
+import express from 'express';
+import User from '../models/userModel.js';
+import expressAsyncHandler from 'express-async-handler';
+import bcrypt from 'bcryptjs';
+//import { generateToken } from '../utils.js';
+import { isAuth, isAdmin, generateToken } from '../utils.js';
+
+const userRouter = express.Router();
+
+//Get list of users
+userRouter.get(
+  '/',
+  isAuth,
+  isAdmin,
+  expressAsyncHandler(async (req, res) => {
+    const users = await User.find({});
+    res.send(users);
+  })
+);
+
+//Find particular user using userId
+userRouter.get(
+  '/:id',
+  isAuth,
+  isAdmin,
+  expressAsyncHandler(async (req, res) => {
+    const user = await User.findById(req.params.id);
+    if (user) {
+      res.send(user);
+    } else {
+      res.status(404).send({ message: 'User Not Found' });
+    }
+  })
+);
+
+//Update and existing user record
+userRouter.put(
+  '/:id',
+  isAuth,
+  isAdmin,
+  expressAsyncHandler(async (req, res) => {
+    const user = await User.findById(req.params.id);
+    if (user) {
+      user.name = req.body.name || user.name;
+      user.email = req.body.email || user.email;
+      user.isAdmin = Boolean(req.body.isAdmin);
+      const updatedUser = await user.save();
+      res.send({ message: 'User Updated', user: updatedUser });
+    } else {
+      res.status(404).send({ message: 'User Not Found' });
+    }
+  })
+);
+
+//Delete user API
+userRouter.delete(
+  '/:id',
+  isAuth,
+  isAdmin,
+  expressAsyncHandler(async (req, res) => {
+    const user = await User.findById(req.params.id);
+    if (user) {
+      if (user.email === 'admin@example.com') {
+        res.status(400).send({ message: 'Cannot Delete Admin User' });
+        return;
+      }
+      await user.remove();
+      res.send({ message: 'User Deleted' });
+    } else {
+      res.status(404).send({ message: 'User Not Found' });
+    }
+  })
+);
+
+//SignIn validations and functionality
+userRouter.post('/signin', expressAsyncHandler(async(req, res) => {
+
+    const user = await User.findOne({email: req.body.email});
+    if(user) {
+        if(bcrypt.compareSync(req.body.password, user.password)) {
+            res.send({
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                isAdmin: user.isAdmin,
+                token: generateToken(user)
+            });
+            return;
+        }
+    }
+    res.status(401).send({message: 'Invalid Email or Password'});
+}));
+
+//SignUp validations and functionality
+userRouter.post('/signup',expressAsyncHandler(async(req, res) => {
+    const newUser = new User ({
+        name: req.body.name,
+        email: req.body.email,
+        password: bcrypt.hashSync(req.body.password)
+    });
+    const user = await newUser.save();
+    res.send({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        isAdmin: user.isAdmin,
+        token: generateToken(user)
+    });
+}));
+
+//User profile details
+userRouter.put(
+    '/profile',
+    isAuth,
+    expressAsyncHandler(async (req, res) => {
+      const user = await User.findById(req.user._id);
+      if (user) {
+        user.name = req.body.name || user.name;
+        user.email = req.body.email || user.email;
+        if (req.body.password) {
+          user.password = bcrypt.hashSync(req.body.password, 8);
+        }
+  
+        const updatedUser = await user.save();
+        res.send({
+          _id: updatedUser._id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          isAdmin: updatedUser.isAdmin,
+          token: generateToken(updatedUser),
+        });
+      } else {
+        res.status(404).send({ message: 'User not found' });
+      }
+    })
+  );
+
+export default userRouter;
